@@ -102,6 +102,12 @@ delimited key pairs.`,
 				},
 			},
 
+			"external_id": {
+				Type: framework.TypeString,
+				Description: `External ID parameter commonly applied to IAM roles created for 3rd party accessing
+via sts:AssumeRole. Only valid when credential_type is assumed_role.`,
+			},
+
 			"default_sts_ttl": {
 				Type:        framework.TypeDurationSecond,
 				Description: fmt.Sprintf("Default TTL for %s and %s credential types when no TTL is explicitly requested with the credentials", assumedRoleCred, federationTokenCred),
@@ -275,6 +281,10 @@ func (b *backend) pathRolesWrite(ctx context.Context, req *logical.Request, d *f
 			}
 		}
 		roleEntry.PolicyDocument = compacted
+	}
+
+	if externalIDRaw, ok := d.GetOk("external_id"); ok {
+		roleEntry.ExternalID = externalIDRaw.(string)
 	}
 
 	if defaultSTSTTLRaw, ok := d.GetOk("default_sts_ttl"); ok {
@@ -498,6 +508,7 @@ type awsRoleEntry struct {
 	PolicyArns               []string          `json:"policy_arns"`                           // ARNs of managed policies to attach to an IAM user
 	RoleArns                 []string          `json:"role_arns"`                             // ARNs of roles to assume for AssumedRole credentials
 	PolicyDocument           string            `json:"policy_document"`                       // JSON-serialized inline policy to attach to IAM users and/or to specify as the Policy parameter in AssumeRole calls
+	ExternalID               string            `json:"external_id"`                           // External ID parameter that will be added to AsssumeRole calls
 	IAMGroups                []string          `json:"iam_groups"`                            // Names of IAM groups that generated IAM users will be added to
 	IAMTags                  map[string]string `json:"iam_tags"`                              // IAM tags that will be added to the generated IAM users
 	InvalidData              string            `json:"invalid_data,omitempty"`                // Invalid role data. Exists to support converting the legacy role data into the new format
@@ -515,6 +526,7 @@ func (r *awsRoleEntry) toResponseData() map[string]interface{} {
 		"policy_arns":              r.PolicyArns,
 		"role_arns":                r.RoleArns,
 		"policy_document":          r.PolicyDocument,
+		"external_id":              r.ExternalID,
 		"iam_groups":               r.IAMGroups,
 		"iam_tags":                 r.IAMTags,
 		"default_sts_ttl":          int64(r.DefaultSTSTTL.Seconds()),
@@ -577,6 +589,10 @@ func (r *awsRoleEntry) validate() error {
 
 	if len(r.RoleArns) > 0 && !strutil.StrListContains(r.CredentialTypes, assumedRoleCred) {
 		errors = multierror.Append(errors, fmt.Errorf("cannot supply role_arns when credential_type isn't %s", assumedRoleCred))
+	}
+
+	if r.ExternalID != "" && !strutil.StrListContains(r.CredentialTypes, assumedRoleCred) {
+		errors = multierror.Append(errors, fmt.Errorf("cannot supply external_id when credential_type isn't %s", assumedRoleCred))
 	}
 
 	return errors.ErrorOrNil()
